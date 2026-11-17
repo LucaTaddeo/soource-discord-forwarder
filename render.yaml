@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: soource-discord-forwarder
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: WEBHOOK_AUTHORIZATION
+        sync: false
+      - key: OWNER_USER_ID
+        value: ""
+      - key: GUILD_IDS
+        value: ""
+      - key: CHANNEL_IDS
+        value: ""
+      - key: FORWARD_MODE
+        value: all
