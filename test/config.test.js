@@ -35,6 +35,9 @@ describe('loadConfig', () => {
     assert.equal(config.ownerUserId, null);
     assert.equal(config.guildIds, null);
     assert.equal(config.channelIds, null);
+    assert.equal(config.mcpApiKey, null);
+    assert.equal(config.allowWrite, true);
+    assert.equal(config.port, 3000);
   });
 
   it('normalizes an optional owner mention and accepts mentions mode', () => {
@@ -65,10 +68,29 @@ describe('loadConfig', () => {
     );
   });
 
+  it('reads the MCP key, the write switch and the HTTP port', () => {
+    const config = loadConfig(
+      env({
+        MCP_API_KEY: '  local-test-key  ',
+        ALLOW_WRITE: ' FALSE ',
+        PORT: '8080',
+      }),
+    );
+    assert.equal(config.mcpApiKey, 'local-test-key');
+    assert.equal(config.allowWrite, false);
+    assert.equal(config.port, 8080);
+    assert.equal(loadConfig(env({ ALLOW_WRITE: 'on' })).allowWrite, true);
+    assert.equal(loadConfig(env({ MCP_API_KEY: '   ' })).mcpApiKey, null);
+  });
+
   it('rejects a bad url or mode', () => {
     assert.throws(() => loadConfig(env({ WEBHOOK_URL: 'non è un url' })), /WEBHOOK_URL non è un URL valido/);
     assert.throws(() => loadConfig(env({ WEBHOOK_URL: 'ftp://example.test/hook' })), /http o https/);
     assert.throws(() => loadConfig(env({ FORWARD_MODE: 'everything' })), /FORWARD_MODE/);
+    assert.throws(() => loadConfig(env({ ALLOW_WRITE: 'maybe' })), /ALLOW_WRITE/);
+    assert.throws(() => loadConfig(env({ PORT: '0' })), /PORT/);
+    assert.throws(() => loadConfig(env({ PORT: '65536' })), /PORT/);
+    assert.throws(() => loadConfig(env({ PORT: 'abc' })), /PORT/);
   });
 
   it('describes the webhook by origin only', () => {

@@ -54,6 +54,32 @@ function parseForwardMode(value) {
   return mode;
 }
 
+function parseMcpApiKey(value) {
+  const trimmed = value == null ? '' : String(value).trim();
+  return trimmed ? trimmed : null;
+}
+
+function parseAllowWrite(value) {
+  if (value == null || String(value).trim() === '') return true;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  throw new Error("ALLOW_WRITE deve essere 'true' oppure 'false'");
+}
+
+function parsePort(value) {
+  if (value == null || String(value).trim() === '') return 3000;
+  const raw = String(value).trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('PORT deve essere un numero intero tra 1 e 65535');
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT deve essere un numero intero tra 1 e 65535');
+  }
+  return port;
+}
+
 export function loadWebhookConfig(env = process.env) {
   const webhookUrl = env.WEBHOOK_URL?.trim() ?? '';
   const authorization = env.WEBHOOK_AUTHORIZATION?.trim() ?? '';
@@ -89,5 +115,8 @@ export function loadConfig(env = process.env) {
     guildIds: parseIdList(env.GUILD_IDS),
     channelIds: parseIdList(env.CHANNEL_IDS),
     forwardMode: parseForwardMode(env.FORWARD_MODE),
+    mcpApiKey: parseMcpApiKey(env.MCP_API_KEY),
+    allowWrite: parseAllowWrite(env.ALLOW_WRITE),
+    port: parsePort(env.PORT),
   };
 }

@@ -6,6 +6,7 @@ import { loadProjectEnv } from './env.js';
 import { evaluateMessage } from './evaluate.js';
 import { addSecret, log } from './log.js';
 import { createOwnerCache } from './ownerCache.js';
+import { closeHttpServer, startHttpServer } from './mcp/http.js';
 import { deliverWebhook } from './webhook.js';
 
 process.title = 'soource-discord-forwarder';
@@ -20,6 +21,14 @@ export const DISCORD_CLIENT_OPTIONS = {
   partials: [Partials.Channel],
 };
 
+export function buildClientOptions(mcpEnabled = false) {
+  if (!mcpEnabled) return DISCORD_CLIENT_OPTIONS;
+  return {
+    intents: [...DISCORD_CLIENT_OPTIONS.intents, GatewayIntentBits.GuildMembers],
+    partials: [...DISCORD_CLIENT_OPTIONS.partials],
+  };
+}
+
 function assertNodeVersion() {
   const major = Number(process.versions.node.split('.')[0]);
   if (!Number.isInteger(major) || major < 22) {
@@ -32,7 +41,7 @@ function assertNodeVersion() {
 
 function loginHint(message) {
   if (/disallowed intent/i.test(message)) {
-    return ' Attiva Message Content Intent nel Developer Portal (Bot → Privileged Gateway Intents) e riavvia.';
+    return ' Attiva Message Content Intent nel Developer Portal (Bot → Privileged Gateway Intents) e riavvia. Se MCP_API_KEY è impostata, attiva anche Server Members Intent.';
   }
   if (/invalid token/i.test(message)) {
     return ' Controlla DISCORD_TOKEN: deve essere il token del bot, non il Client Secret.';
@@ -95,14 +104,16 @@ export async function main() {
   addSecret(config.token);
   addSecret(config.authorization);
   addSecret(config.webhookUrl);
+  if (config.mcpApiKey) addSecret(config.mcpApiKey);
 
-  const client = new Client(DISCORD_CLIENT_OPTIONS);
+  const client = new Client(buildClientOptions(Boolean(config.mcpApiKey)));
 
   const ownerCache = createOwnerCache();
   const warnedGuilds = new Set();
   let ready = false;
   let shuttingDown = false;
   let activeDeliveries = 0;
+  let httpServer;
 
   async function fetchOwnerMember(guildId, ownerUserId) {
     return ownerCache.get(`${guildId}:${ownerUserId}`, async () => {
@@ -128,6 +139,11 @@ export async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     log('info', `Arresto in corso (${signal})`);
+    try {
+      await closeHttpServer(httpServer);
+    } catch (error) {
+      log('error', `Errore durante la chiusura del server HTTP: ${error.message}`);
+    }
     const deadline = Date.now() + 8000;
     while (activeDeliveries > 0 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -240,9 +256,28 @@ export async function main() {
     shutdown('uncaughtException', 1);
   });
 
+  try {
+    httpServer = await startHttpServer({ client, config });
+  } catch (error) {
+    log('error', `Impossibile aprire la porta ${config.port}: ${error.message}`);
+    process.exit(1);
+  }
+
   log('info', 'Avvio del bot');
   log('info', `Modalità di inoltro: ${config.forwardMode}`);
   log('info', `Webhook: ${describeWebhookUrl(config.webhookUrl)}`);
+  log('info', `Server HTTP in ascolto sulla porta ${config.port}`);
+  if (config.mcpApiKey) {
+    log('info', 'Endpoint MCP attivo: POST /mcp');
+    if (config.mcpApiKey.length < 16) {
+      log('warn', 'MCP_API_KEY è molto corta: generane una con almeno 32 byte casuali');
+    }
+    if (!config.allowWrite) {
+      log('info', 'ALLOW_WRITE=false: i tool di scrittura non sono registrati');
+    }
+  } else {
+    log('warn', 'MCP_API_KEY non impostata: il server MCP non viene avviato');
+  }
 
   try {
     await client.login(config.token);

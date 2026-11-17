@@ -2,9 +2,11 @@
 
 Bot per il server Discord **Soource**. Quando arriva un messaggio nuovo, controlla i filtri e, se il messaggio è rilevante, lo invia con una richiesta HTTP `POST` a un webhook.
 
-Il bot non scrive nei canali e non risponde ai messaggi. Deve restare acceso: se lo chiudi sul tuo computer, smette di inoltrare. Per lasciarlo sempre acceso usa [Railway](#3-metterlo-online) (la strada principale) oppure [Render](#32-alternativa-render).
+Se imposti `MCP_API_KEY`, lo stesso processo espone anche un server [MCP](https://modelcontextprotocol.io) su HTTP. Un assistente AI può così leggere Discord e, se lo consenti, scriverci **con l’account del bot**, non con il tuo utente. L’inoltro al webhook resta attivo in entrambi i casi. Senza `MCP_API_KEY` il bot si comporta come prima: inoltra i messaggi e non scrive da solo.
 
-Il testo dei messaggi **non** viene scritto nei log. Nei log non compaiono né il token del bot né il valore di `WEBHOOK_AUTHORIZATION`.
+Il processo deve restare acceso: se lo chiudi sul tuo computer, smette di inoltrare e l’endpoint MCP non risponde. Per lasciarlo sempre acceso usa [Railway](#3-metterlo-online) (la strada principale) oppure [Render](#32-alternativa-render).
+
+Il testo dei messaggi **non** viene scritto nei log. Nei log non compaiono né il token del bot, né `WEBHOOK_AUTHORIZATION`, né `MCP_API_KEY`.
 
 ## Cosa arriva al webhook
 
@@ -79,11 +81,12 @@ Senza questo permesso Discord consegna i messaggi vuoti: il bot vede che qualcun
 
 1. Nel menu a sinistra apri **Bot**.
 2. Scorri fino a **Privileged Gateway Intents**.
-3. Attiva solo **Message Content Intent**.
-4. Non serve attivare **Presence Intent** né **Server Members Intent**.
-5. Salva le modifiche con **Save Changes**.
+3. Attiva **Message Content Intent**.
+4. Se userai il server MCP, attiva anche **Server Members Intent**: serve al tool `list_members`. Senza `MCP_API_KEY` lascialo spento. Il bot lo richiede solo quando l’MCP è acceso, e un intent acceso nel codice ma spento nel portale impedisce l’accesso a Discord.
+5. Non serve **Presence Intent**.
+6. Salva le modifiche con **Save Changes**.
 
-Se il bot è già acceso, riavvialo dopo aver salvato. Altrimenti nei log compare un errore simile a `Used disallowed intents`.
+Se il bot è già acceso, riavvialo dopo aver salvato. Altrimenti nei log compare un errore simile a `Used disallowed intents`. Il messaggio ricorda anche il **Server Members Intent** quando `MCP_API_KEY` è impostata.
 
 ### 1.2 Copiare il token
 
@@ -104,15 +107,37 @@ Il token è una password. Non incollarlo in chat, non metterlo nel README e non 
    - **Read Message History**
 4. In fondo alla pagina copia il link generato.
 
-`View Channels` serve perché Discord consegni i messaggi dei canali visibili. `Read Message History` serve quando un messaggio è una risposta e Discord non allega il messaggio originale: il bot lo rilegge per capire se la risposta è all’owner.
+`View Channels` serve perché Discord consegni i messaggi dei canali visibili. `Read Message History` serve quando un messaggio è una risposta e Discord non allega il messaggio originale: il bot lo rilegge per capire se la risposta è all’owner. Gli stessi due permessi bastano ai tool MCP di sola lettura (`read_messages`, `search_messages`, `get_message`).
 
-Se il generatore non è disponibile, costruisci il link a mano. Sostituisci `IL_TUO_CLIENT_ID` con l’**Application ID** che trovi in **General Information** (è un numero, non il token):
+#### Permessi per i tool MCP che scrivono
+
+Servono solo se `ALLOW_WRITE` non è `false` e vuoi che l’assistente invii messaggi, reagisca, crei thread o fissi messaggi. Sono sempre azioni **dell’account del bot**, non del tuo utente. In **Bot Permissions** aggiungi anche:
+
+- **Send Messages**
+- **Send Messages in Threads**
+- **Create Public Threads**
+- **Add Reactions**
+- **Manage Messages**, solo per `pin_message` e `unpin_message`
+
+`edit_message` e `delete_message` funzionano soltanto sui messaggi che ha scritto il bot, anche se Manage Messages permetterebbe di più.
+
+Se il bot è già nel server con i soli permessi di lettura, apri di nuovo il link di invito e conferma: Discord aggiorna il ruolo del bot. In alternativa vai in **Impostazioni del server → Ruoli**, apri il ruolo del bot e spunta le stesse voci.
+
+Link con lettura e scrittura (sostituisci `IL_TUO_CLIENT_ID` con l’**Application ID**):
+
+```text
+https://discord.com/oauth2/authorize?client_id=IL_TUO_CLIENT_ID&permissions=309237722176&scope=bot
+```
+
+`309237722176` è la somma dei permessi di lettura e di quelli elencati qui sopra. I messaggi diretti (`send_dm`) non hanno un permesso in più: Discord li consegna solo se l’utente condivide un server col bot e non ha chiuso i DM.
+
+Se il generatore non è disponibile, costruisci il link di sola lettura a mano. Sostituisci `IL_TUO_CLIENT_ID` con l’**Application ID** che trovi in **General Information** (è un numero, non il token):
 
 ```text
 https://discord.com/oauth2/authorize?client_id=IL_TUO_CLIENT_ID&permissions=66560&scope=bot
 ```
 
-`66560` è la somma dei due permessi sopra.
+`66560` è la somma di **View Channels** e **Read Message History**.
 
 ### 1.4 Invitare il bot nel server Soource
 
@@ -164,6 +189,9 @@ Poi compila `.env`. Su Railway e Render non usi questo file: le stesse variabili
 | `GUILD_IDS` | no | ID dei server da seguire, separati da virgola. Vuoto = tutti i server in cui si trova il bot. |
 | `CHANNEL_IDS` | no | ID dei canali da seguire, separati da virgola. Vuoto = tutti i canali. I DM passano sempre. |
 | `FORWARD_MODE` | no | `all` (predefinito) oppure `mentions`. |
+| `MCP_API_KEY` | no | Chiave dell’endpoint MCP. Se è vuota, `/mcp` non parte: restano l’inoltro e `GET /health`. |
+| `ALLOW_WRITE` | no | `true` (predefinito) oppure `false`. Con `false` i tool che inviano messaggi, reagiscono, modificano, cancellano, fissano, creano thread o mandano DM non vengono registrati. |
+| `PORT` | no | Porta HTTP. Predefinito `3000`. Su Railway e Render la piattaforma la imposta da sola: non sovrascriverla. |
 
 `all` inoltra ogni messaggio che passa gli altri filtri. `mentions` inoltra solo:
 
@@ -172,6 +200,22 @@ Poi compila `.env`. Su Railway e Render non usi questo file: le stesse variabili
 - un messaggio diretto al bot.
 
 Se scegli `mentions` ma lasci vuoto `OWNER_USER_ID`, il bot può riconoscere solo i messaggi diretti e lo scrive nel log all’avvio.
+
+`GUILD_IDS`, se è compilato, vale anche per i tool MCP: l’assistente vede solo quei server. Un canale di un altro server viene rifiutato. `send_dm` richiede in più che l’utente sia membro di uno dei server elencati.
+
+### Chiave del server MCP
+
+`MCP_API_KEY` è una password tua, diversa da `WEBHOOK_AUTHORIZATION` e dal token del bot. Generala sul computer e incollala nel pannello, non nel README e non in un commit:
+
+```bash
+openssl rand -hex 32
+```
+
+L’assistente deve mandare l’header `Authorization: Bearer <MCP_API_KEY>`. Il confronto non si ferma al primo carattere diverso. Se la variabile manca, nei log compare un avviso e il server MCP non viene avviato: `GET /health` risponde lo stesso, così il healthcheck di Railway o Render resta verde.
+
+`ALLOW_WRITE=false` toglie i tool di scrittura. Quelli di lettura restano: `list_guilds`, `list_channels` (canali e thread), `read_messages`, `search_messages`, `get_message`, `list_members`, `get_member`.
+
+I tool di scrittura, quando sono registrati, dicono in modo esplicito che l’azione parte **dall’account del bot, non come l’utente**: `send_message`, `reply_in_thread`, `create_thread`, `add_reaction`, `remove_reaction`, `edit_message`, `delete_message`, `pin_message`, `unpin_message`, `send_dm`. `@everyone` e `@here` nei testi inviati dal bot vengono soppressi.
 
 ### Webhook dal pannello Grok Bot
 
@@ -195,7 +239,9 @@ Preferisci un URL `https://`. Un URL `http://` funziona, ma il contenuto dei mes
 
 ## 3. Metterlo online
 
-Il bot non ha un sito e non apre una porta. È un processo che resta connesso a Discord. Non aggiungere un dominio pubblico.
+Il processo resta connesso a Discord e apre una porta HTTP. Railway e Render la usano per lo healthcheck `GET /health`, che non chiede autenticazione. Se `MCP_API_KEY` è impostata, l’endpoint MCP è `POST /mcp`.
+
+`/health` risponde appena il processo è in ascolto, anche mentre Discord si sta ancora connettendo. Se il login Discord fallisce, il processo esce e la piattaforma lo riavvia. Il bot non va in sleep: se la piattaforma ferma il processo quando non arrivano richieste HTTP, si interrompono sia l’inoltro sia l’MCP. Su Railway `railway.json` imposta `sleepApplication` a false.
 
 ### 3.1 Railway (strada principale)
 
@@ -206,9 +252,10 @@ Il bot non ha un sito e non apre una porta. È un processo che resta connesso a 
    - `DISCORD_TOKEN`
    - `WEBHOOK_URL`
    - `WEBHOOK_AUTHORIZATION`
-   - e le opzionali che ti servono (`OWNER_USER_ID`, `GUILD_IDS`, `CHANNEL_IDS`, `FORWARD_MODE`).
-5. Inseriscile dal pannello, non nel terminale, così non restano nella cronologia dei comandi.
-6. Avvia il deploy. Apri **Logs**.
+   - e le opzionali che ti servono (`OWNER_USER_ID`, `GUILD_IDS`, `CHANNEL_IDS`, `FORWARD_MODE`, `MCP_API_KEY`, `ALLOW_WRITE`).
+5. Non impostare `PORT`: Railway la assegna e il processo la legge da solo.
+6. Inserisci le variabili dal pannello, non nel terminale, così non restano nella cronologia dei comandi.
+7. Avvia il deploy. Apri **Logs**.
 
 All’avvio devi vedere una riga `Connesso come ...` e l’elenco dei server, per esempio:
 
@@ -220,7 +267,49 @@ All’avvio devi vedere una riga `Connesso come ...` e l’elenco dei server, pe
 
 Se un ID in `GUILD_IDS` non è tra i server visibili, il log lo segnala: il bot non è in quel server, oppure l’ID è sbagliato.
 
-Il comando dentro il container è `node src/index.js`. Quando Railway ferma il servizio gli manda `SIGTERM`: il bot smette di prendere messaggi nuovi, aspetta qualche secondo gli invii già partiti e si chiude. Se il processo esce con un errore, Railway lo riavvia fino a 10 volte.
+Il comando dentro il container è `node src/index.js`. Railway controlla `GET /health` (timeout 120 secondi in `railway.json`). Quando ferma il servizio gli manda `SIGTERM`: il bot chiude la porta HTTP, smette di prendere messaggi nuovi, aspetta qualche secondo gli invii già partiti e si chiude. Se il processo esce con un errore, Railway lo riavvia fino a 10 volte.
+
+#### Dominio pubblico e URL MCP
+
+L’inoltro al webhook non ha bisogno di un dominio. Il server MCP sì, se l’assistente non gira nella stessa rete privata di Railway.
+
+1. Nel servizio Railway apri **Settings**.
+2. Apri **Networking**.
+3. Clicca **Generate Domain**.
+4. Railway assegna un dominio, per esempio `soource-discord-forwarder-production.up.railway.app`.
+
+L’URL da dare all’assistente è:
+
+```text
+https://<dominio>/mcp
+```
+
+Header obbligatorio, con la chiave che hai messo in `MCP_API_KEY`:
+
+```text
+Authorization: Bearer <MCP_API_KEY>
+```
+
+`/health` non vuole questo header. Un controllo rapido dal browser o da un altro computer: `https://<dominio>/health` risponde con un JSON `{"ok":true,...}`. `discord` è `true` quando il bot è connesso; `mcp` è `true` quando la chiave è impostata.
+
+Esempio di configurazione per un client MCP:
+
+```json
+{
+  "mcpServers": {
+    "soource-discord": {
+      "url": "https://<dominio>/mcp",
+      "headers": {
+        "Authorization": "Bearer <MCP_API_KEY>"
+      }
+    }
+  }
+}
+```
+
+Sostituisci `<dominio>` e `<MCP_API_KEY>` con i valori veri. Non committare la chiave. Il trasporto è Streamable HTTP, senza sessione: ogni richiesta è indipendente e porta l’header. I messaggi che l’assistente fa inviare partono dall’account del bot.
+
+Se non generi il dominio, l’inoltro funziona lo stesso. Senza `MCP_API_KEY` nei log resta l’avviso che il server MCP non è partito, e `/health` continua a rispondere.
 
 #### Se Railway non può collegare il repository
 
@@ -255,21 +344,23 @@ Se la build Docker fallisce, nel servizio Railway puoi cambiare il builder in **
 
 ### 3.2 Alternativa: Render
 
-Render va bene se non usi Railway. Serve un **Background Worker** sempre acceso. Un Web Service gratuito non va bene: va in sleep e questo bot non risponde a richieste HTTP.
+Render va bene se non usi Railway. Serve un **Web Service** sempre acceso: il processo tiene la connessione a Discord e risponde a `/health` e, se hai impostato `MCP_API_KEY`, a `/mcp`. Un piano che va in sleep interrompe sia l’inoltro sia l’MCP. `render.yaml` propone `starter`.
 
 1. Accedi su [dashboard.render.com](https://dashboard.render.com).
-2. Se il repository è su GitHub o GitLab, clicca **New → Blueprint** e collega il repository. Render legge `render.yaml` e crea un worker Docker chiamato `soource-discord-forwarder`.
-3. Quando te lo chiede, compila `DISCORD_TOKEN`, `WEBHOOK_URL` e `WEBHOOK_AUTHORIZATION`. `FORWARD_MODE` è già `all`: cambialo nel pannello se vuoi `mentions`.
-4. Aggiungi `OWNER_USER_ID`, `GUILD_IDS` e `CHANNEL_IDS` solo se ti servono. Lasciali vuoti per non filtrare.
-5. Scegli un piano che tenga il worker acceso (il file propone `starter`; puoi cambiarlo). Conferma il deploy.
+2. Se il repository è su GitHub o GitLab, clicca **New → Blueprint** e collega il repository. Render legge `render.yaml` e crea un web service Docker chiamato `soource-discord-forwarder`, con health check `/health`.
+3. Quando te lo chiede, compila `DISCORD_TOKEN`, `WEBHOOK_URL`, `WEBHOOK_AUTHORIZATION` e, se vuoi l’MCP, `MCP_API_KEY`. `FORWARD_MODE` è già `all` e `ALLOW_WRITE` è già `true`: cambiali nel pannello se ti servono altri valori.
+4. Aggiungi `OWNER_USER_ID`, `GUILD_IDS` e `CHANNEL_IDS` solo se ti servono. Lasciali vuoti per non filtrare. Non impostare `PORT`: Render la assegna.
+5. Scegli un piano che tenga il servizio acceso. Conferma il deploy.
 6. Apri i **Logs** e controlla `Connesso come` e l’elenco dei server, come su Railway.
+7. L’URL pubblico del web service è il dominio MCP. L’endpoint è `https://<dominio-render>/mcp`, con lo stesso header `Authorization: Bearer <MCP_API_KEY>` descritto per Railway. `https://<dominio-render>/health` risponde senza chiave.
 
-#### Creare il worker a mano
+#### Creare il web service a mano
 
-Se non vuoi il Blueprint: **New → Background Worker**.
+Se non vuoi il Blueprint: **New → Web Service**.
 
 - **Environment**: Docker, con il `Dockerfile` di questo repository.
 - Oppure **Environment**: Node, **Build Command** `npm ci`, **Start Command** `node src/index.js`.
+- **Health Check Path**: `/health`.
 
 Poi aggiungi le stesse variabili nella sezione **Environment**.
 
@@ -287,10 +378,10 @@ Per una prova solo sul tuo computer, senza pubblicare l’immagine:
 
 ```bash
 docker build -t soource-discord-forwarder .
-docker run --rm --env-file .env soource-discord-forwarder
+docker run --rm --env-file .env -p 3000:3000 soource-discord-forwarder
 ```
 
-`--env-file` legge il `.env` locale. L’immagine non contiene quel file.
+`--env-file` legge il `.env` locale. L’immagine non contiene quel file. `-p 3000:3000` pubblica la porta: `http://127.0.0.1:3000/health` e, se hai messo `MCP_API_KEY`, `http://127.0.0.1:3000/mcp`. Senza `-p` l’inoltro funziona lo stesso, ma dal computer non raggiungi l’HTTP del container.
 
 ---
 
@@ -360,7 +451,11 @@ docker run --rm --env-file .env soource-discord-forwarder node scripts/send-samp
 | --- | --- |
 | `Variabili d'ambiente mancanti` | Manca `DISCORD_TOKEN`, `WEBHOOK_URL` o `WEBHOOK_AUTHORIZATION`. Su Railway/Render controlla **Variables** e ridistribuisci. |
 | `An invalid token` | Hai incollato il Client Secret, un token vecchio, o ci sono spazi. Rigenera il token nella pagina **Bot** e aggiorna la variabile. |
-| `Used disallowed intents` | Attiva **Message Content Intent**, salva, riavvia il bot. |
+| `Used disallowed intents` | Attiva **Message Content Intent**, salva, riavvia il bot. Se hai impostato `MCP_API_KEY`, attiva anche **Server Members Intent**. |
+| `MCP_API_KEY non impostata` | Avviso atteso se non usi l’MCP. L’inoltro continua e `/health` risponde. `/mcp` risponde 404. |
+| `401` su `/mcp` | Manca `Authorization: Bearer <MCP_API_KEY>`, lo schema non è `Bearer`, oppure la chiave non coincide. `/health` non usa questa chiave. |
+| Il tool risponde `Missing Permissions` | Al ruolo del bot manca uno dei permessi di scrittura: Send Messages, Send Messages in Threads, Create Public Threads, Add Reactions, Manage Messages per i pin. |
+| Un tool di scrittura non compare | `ALLOW_WRITE=false`. I tool di lettura restano. |
 | Il bot è online ma `Server visibili (0)` | Non è stato invitato, oppure l’invito è stato rifiutato. Ripeti il [link di invito](#14-invitare-il-bot-nel-server-soource). |
 | Il server c’è, ma i messaggi non partono | Stai scrivendo dall’account owner; il canale non è in `CHANNEL_IDS`; il server non è in `GUILD_IDS`; oppure `FORWARD_MODE=mentions` e il messaggio non menziona l’owner, non è una risposta e non è un DM. |
 | I messaggi partono con `content` vuoto | **Message Content Intent** spento, oppure il bot è stato avviato prima di attivarlo. Attivalo e riavvia. |
@@ -374,16 +469,19 @@ docker run --rm --env-file .env soource-discord-forwarder node scripts/send-samp
 | --- | --- |
 | `npm install` | Installa le dipendenze. |
 | `npm start` | Avvia il bot. |
-| `npm test` | Esegue i test dei filtri, del JSON e dei tentativi HTTP. |
+| `npm test` | Esegue i test dei filtri, del JSON, dei tentativi HTTP, dell’autenticazione MCP e dei tool. |
 | `npm run test-webhook` | Invia un payload di prova al webhook. |
 
-Dipendenze di runtime: `discord.js` 14 e `dotenv`. I test usano il test runner incluso in Node, senza altre librerie.
+Dipendenze di runtime: `discord.js` 14, `dotenv`, `@modelcontextprotocol/sdk` e `zod` (gli schemi dei tool MCP). I test usano il test runner incluso in Node e un client Discord finto: non parlano con Discord e non usano chiavi vere.
 
 ## File principali
 
 | File | Ruolo |
 | --- | --- |
-| `src/index.js` | Connessione a Discord, log di avvio, chiusura pulita. |
+| `src/index.js` | Connessione a Discord, server HTTP, log di avvio, chiusura pulita. Lo stesso client Discord serve l’inoltro e i tool MCP. |
+| `src/mcp/http.js` | `GET /health` senza autenticazione e `POST /mcp` con Streamable HTTP. |
+| `src/mcp/tools.js` | Tool Discord. Quelli di scrittura dichiarano che l’azione è del bot, non dell’utente. |
+| `src/mcp/auth.js` | Controllo di `Authorization: Bearer <MCP_API_KEY>`. |
 | `src/filter.js` | Regole: bot, owner, server, canale, modalità `all` / `mentions`. |
 | `src/evaluate.js` | Decide se inoltrare e costruisce il JSON. |
 | `src/webhook.js` | `POST` con timeout, tentativi e header `Authorization`. |
