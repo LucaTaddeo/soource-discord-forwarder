@@ -67,6 +67,31 @@ function parseAllowWrite(value) {
   throw new Error("ALLOW_WRITE deve essere 'true' oppure 'false'");
 }
 
+const DEFAULT_FORWARD_DEBOUNCE_MS = 120_000;
+const DEFAULT_FORWARD_MAX_BATCH = 20;
+const DEFAULT_FORWARD_MAX_WAIT_MS = 600_000;
+
+function parseNonNegativeInteger(value, name, fallback) {
+  if (value == null || String(value).trim() === '') return fallback;
+  const raw = String(value).trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`${name} deve essere un intero maggiore o uguale a 0`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} deve essere un intero maggiore o uguale a 0`);
+  }
+  return parsed;
+}
+
+function parseBatchSize(value) {
+  const parsed = parseNonNegativeInteger(value, 'FORWARD_MAX_BATCH', DEFAULT_FORWARD_MAX_BATCH);
+  if (parsed < 1) {
+    throw new Error('FORWARD_MAX_BATCH deve essere un intero maggiore o uguale a 1');
+  }
+  return parsed;
+}
+
 function parsePort(value) {
   if (value == null || String(value).trim() === '') return 3000;
   const raw = String(value).trim();
@@ -115,6 +140,17 @@ export function loadConfig(env = process.env) {
     guildIds: parseIdList(env.GUILD_IDS),
     channelIds: parseIdList(env.CHANNEL_IDS),
     forwardMode: parseForwardMode(env.FORWARD_MODE),
+    forwardDebounceMs: parseNonNegativeInteger(
+      env.FORWARD_DEBOUNCE_MS,
+      'FORWARD_DEBOUNCE_MS',
+      DEFAULT_FORWARD_DEBOUNCE_MS,
+    ),
+    forwardMaxBatch: parseBatchSize(env.FORWARD_MAX_BATCH),
+    forwardMaxWaitMs: parseNonNegativeInteger(
+      env.FORWARD_MAX_WAIT_MS,
+      'FORWARD_MAX_WAIT_MS',
+      DEFAULT_FORWARD_MAX_WAIT_MS,
+    ),
     mcpApiKey: parseMcpApiKey(env.MCP_API_KEY),
     allowWrite: parseAllowWrite(env.ALLOW_WRITE),
     port: parsePort(env.PORT),

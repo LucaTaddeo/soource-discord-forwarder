@@ -1,12 +1,14 @@
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createForwardBatcher, isOwnMessage } from './batch.js';
 import { describeWebhookUrl, loadConfig } from './config.js';
 import { loadProjectEnv } from './env.js';
 import { evaluateMessage } from './evaluate.js';
 import { addSecret, log } from './log.js';
 import { createOwnerCache } from './ownerCache.js';
 import { closeHttpServer, startHttpServer } from './mcp/http.js';
+import { buildBatchPayload } from './payload.js';
 import { deliverWebhook } from './webhook.js';
 
 process.title = 'soource-discord-forwarder';
@@ -112,8 +114,17 @@ export async function main() {
   const warnedGuilds = new Set();
   let ready = false;
   let shuttingDown = false;
+  let activeHandlers = 0;
   let activeDeliveries = 0;
   let httpServer;
+
+  const batcher = createForwardBatcher({
+    debounceMs: config.forwardDebounceMs,
+    maxBatch: config.forwardMaxBatch,
+    maxWaitMs: config.forwardMaxWaitMs,
+    botUserId: () => client.user?.id ?? null,
+    onFlush: (entries) => deliverBatch(entries),
+  });
 
   async function fetchOwnerMember(guildId, ownerUserId) {
     return ownerCache.get(`${guildId}:${ownerUserId}`, async () => {
@@ -135,18 +146,34 @@ export async function main() {
     });
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function shutdown(signal, code = 0) {
     if (shuttingDown) return;
     shuttingDown = true;
     log('info', `Arresto in corso (${signal})`);
+    const deadline = Date.now() + 8000;
+    try {
+      while (activeHandlers > 0 && Date.now() < deadline) {
+        await sleep(50);
+      }
+      const pending = batcher.pendingCount();
+      if (pending > 0) {
+        log('info', `Invio di ${pending} messaggi in attesa prima dell'arresto`);
+      }
+      await Promise.race([batcher.flushAll(), sleep(Math.max(0, deadline - Date.now()))]);
+    } catch (error) {
+      log('error', `Errore durante l'invio dei messaggi in attesa: ${error.message}`);
+    }
     try {
       await closeHttpServer(httpServer);
     } catch (error) {
       log('error', `Errore durante la chiusura del server HTTP: ${error.message}`);
     }
-    const deadline = Date.now() + 8000;
     while (activeDeliveries > 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await sleep(100);
     }
     if (activeDeliveries > 0) {
       log('warn', `Arresto con ${activeDeliveries} invii ancora in corso`);
@@ -207,37 +234,53 @@ export async function main() {
     });
   });
 
+  async function deliverBatch(entries) {
+    activeDeliveries += 1;
+    try {
+      const payload = buildBatchPayload(entries);
+      const result = await deliverWebhook({
+        url: config.webhookUrl,
+        authorization: config.authorization,
+        payload,
+      });
+      const where = payload.is_dm ? 'DM' : `${payload.server ?? '?'} / #${payload.channel}`;
+      if (result.ok) {
+        if (payload.message_count === 1) {
+          const only = entries[0];
+          log(
+            'info',
+            `Inoltrato messaggio ${only?.messageId ?? '?'} da ${payload.author} in ${where} (HTTP ${result.status})`,
+          );
+        } else {
+          log('info', `Inoltrati ${payload.message_count} messaggi in ${where} (HTTP ${result.status})`);
+        }
+      } else {
+        const ids = entries.map((entry) => entry.messageId ?? '?').join(', ');
+        log(
+          'error',
+          `Invio non riuscito per ${entries.length} messaggi (${ids}) dopo ${result.attempts} tentativi: ${result.summary}`,
+        );
+      }
+    } catch (error) {
+      log('error', `Invio non riuscito: ${error.message}`);
+    } finally {
+      activeDeliveries -= 1;
+    }
+  }
+
   async function handleMessage(message) {
     if (shuttingDown) return;
-    activeDeliveries += 1;
+    if (isOwnMessage(message, client.user?.id)) return;
+    activeHandlers += 1;
     try {
       const decision = await evaluateMessage(message, config, {
         fetchReference: (current) => current.fetchReference(),
         fetchOwnerMember,
       });
-      if (!decision.forward || shuttingDown) return;
-
-      const result = await deliverWebhook({
-        url: config.webhookUrl,
-        authorization: config.authorization,
-        payload: decision.payload,
-      });
-      if (result.ok) {
-        const where = decision.payload.is_dm
-          ? 'DM'
-          : `${decision.payload.server ?? '?'} / #${decision.payload.channel}`;
-        log(
-          'info',
-          `Inoltrato messaggio ${message.id} da ${decision.payload.author} in ${where} (HTTP ${result.status})`,
-        );
-      } else {
-        log(
-          'error',
-          `Invio non riuscito per il messaggio ${message.id} dopo ${result.attempts} tentativi: ${result.summary}`,
-        );
-      }
+      if (!decision.forward || !decision.entry) return;
+      await batcher.push(decision.entry);
     } finally {
-      activeDeliveries -= 1;
+      activeHandlers -= 1;
     }
   }
 
@@ -265,6 +308,14 @@ export async function main() {
 
   log('info', 'Avvio del bot');
   log('info', `Modalità di inoltro: ${config.forwardMode}`);
+  if (config.forwardDebounceMs === 0) {
+    log('info', 'Raggruppamento messaggi: disattivato (FORWARD_DEBOUNCE_MS=0)');
+  } else {
+    log(
+      'info',
+      `Raggruppamento messaggi: ${config.forwardDebounceMs} ms di silenzio, massimo ${config.forwardMaxBatch} messaggi o ${config.forwardMaxWaitMs} ms`,
+    );
+  }
   log('info', `Webhook: ${describeWebhookUrl(config.webhookUrl)}`);
   log('info', `Server HTTP in ascolto sulla porta ${config.port}`);
   if (config.mcpApiKey) {

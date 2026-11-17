@@ -32,6 +32,9 @@ describe('loadConfig', () => {
     assert.equal(config.token, SECRET_TOKEN);
     assert.equal(config.authorization, SECRET_AUTH);
     assert.equal(config.forwardMode, 'all');
+    assert.equal(config.forwardDebounceMs, 120_000);
+    assert.equal(config.forwardMaxBatch, 20);
+    assert.equal(config.forwardMaxWaitMs, 600_000);
     assert.equal(config.ownerUserId, null);
     assert.equal(config.guildIds, null);
     assert.equal(config.channelIds, null);
@@ -87,10 +90,27 @@ describe('loadConfig', () => {
     assert.throws(() => loadConfig(env({ WEBHOOK_URL: 'non è un url' })), /WEBHOOK_URL non è un URL valido/);
     assert.throws(() => loadConfig(env({ WEBHOOK_URL: 'ftp://example.test/hook' })), /http o https/);
     assert.throws(() => loadConfig(env({ FORWARD_MODE: 'everything' })), /FORWARD_MODE/);
+    assert.throws(() => loadConfig(env({ FORWARD_DEBOUNCE_MS: '-1' })), /FORWARD_DEBOUNCE_MS/);
+    assert.throws(() => loadConfig(env({ FORWARD_DEBOUNCE_MS: '1.5' })), /FORWARD_DEBOUNCE_MS/);
+    assert.throws(() => loadConfig(env({ FORWARD_MAX_BATCH: '0' })), /FORWARD_MAX_BATCH/);
+    assert.throws(() => loadConfig(env({ FORWARD_MAX_WAIT_MS: 'no' })), /FORWARD_MAX_WAIT_MS/);
     assert.throws(() => loadConfig(env({ ALLOW_WRITE: 'maybe' })), /ALLOW_WRITE/);
     assert.throws(() => loadConfig(env({ PORT: '0' })), /PORT/);
     assert.throws(() => loadConfig(env({ PORT: '65536' })), /PORT/);
     assert.throws(() => loadConfig(env({ PORT: 'abc' })), /PORT/);
+  });
+
+  it('accepts a disabled debounce and custom batch caps', () => {
+    const config = loadConfig(
+      env({
+        FORWARD_DEBOUNCE_MS: '0',
+        FORWARD_MAX_BATCH: '5',
+        FORWARD_MAX_WAIT_MS: '1000',
+      }),
+    );
+    assert.equal(config.forwardDebounceMs, 0);
+    assert.equal(config.forwardMaxBatch, 5);
+    assert.equal(config.forwardMaxWaitMs, 1000);
   });
 
   it('describes the webhook by origin only', () => {

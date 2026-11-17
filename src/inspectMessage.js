@@ -49,6 +49,28 @@ function authorDisplayName(message) {
   return message.member?.displayName || message.author?.globalName || message.author?.username || 'sconosciuto';
 }
 
+function channelIsThread(channel) {
+  if (!channel) return false;
+  if (typeof channel.isThread === 'function') return channel.isThread() === true;
+  return channel.type === 10 || channel.type === 11 || channel.type === 12;
+}
+
+function threadContext(message, scope) {
+  if (scope.isDm || !channelIsThread(message.channel)) {
+    return { thread: null, threadId: null, parentChannel: null, parentChannelId: null };
+  }
+  const channel = message.channel;
+  const threadId = channel?.id == null || channel.id === '' ? scope.channelId : String(channel.id);
+  const parentId = channel?.parentId == null || channel.parentId === '' ? null : String(channel.parentId);
+  const parentName = channel?.parent?.name;
+  return {
+    thread: channel?.name || threadId || null,
+    threadId: threadId || null,
+    parentChannel: parentName ? String(parentName) : null,
+    parentChannelId: parentId,
+  };
+}
+
 function jumpUrl(message, isDm) {
   if (typeof message.url === 'string' && message.url.length > 0) return message.url;
   const guild = isDm || message.guildId == null ? '@me' : message.guildId;
@@ -137,6 +159,8 @@ export async function inspectMessage(message, ownerUserId, options = {}) {
     .map((embed) => embed?.title)
     .filter((title) => typeof title === 'string' && title.trim().length > 0);
 
+  const thread = threadContext(message, scope);
+
   return {
     filter: {
       ...scope,
@@ -144,10 +168,15 @@ export async function inspectMessage(message, ownerUserId, options = {}) {
       isReplyToOwner,
     },
     payload: {
+      messageId: message.id == null || message.id === '' ? null : String(message.id),
       server: scope.isDm ? null : (message.guild?.name ?? null),
       serverId: scope.isDm ? null : scope.guildId,
       channel: scope.isDm ? 'DM' : message.channel?.name || scope.channelId,
       channelId: scope.channelId,
+      thread: thread.thread,
+      threadId: thread.threadId,
+      parentChannel: thread.parentChannel,
+      parentChannelId: thread.parentChannelId,
       author: authorDisplayName(message),
       authorId: scope.authorId,
       content: cleanDiscordSyntax(message.content ?? '', mentionLabels(message)),
