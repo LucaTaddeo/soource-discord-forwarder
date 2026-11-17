@@ -10,24 +10,40 @@ Il testo dei messaggi **non** viene scritto nei log. Nei log non compaiono né i
 
 ## Cosa arriva al webhook
 
-Ogni messaggio inoltrato è un JSON con questi campi:
+I messaggi della stessa conversazione partono insieme, in un solo `POST`. La conversazione è il canale: in un thread è l’ID del thread, in un messaggio diretto è l’ID del canale DM. Ogni messaggio nuovo di quella conversazione azzera l’attesa. Quando per `FORWARD_DEBOUNCE_MS` millisecondi non arriva niente (predefinito 2 minuti), il bot invia il gruppo.
+
+Il gruppo parte prima anche in due casi: se contiene già `FORWARD_MAX_BATCH` messaggi (predefinito 20), oppure se il primo messaggio del gruppo è in attesa da più di `FORWARD_MAX_WAIT_MS` (predefinito 10 minuti). Così una richiesta scritta in più messaggi di seguito arriva come una notifica sola.
+
+Con `FORWARD_DEBOUNCE_MS=0` non c’è attesa e non c’è raggruppamento: ogni messaggio parte da solo, come prima. I messaggi del bot, compresi quelli che scrive lui stesso, non entrano nel gruppo e non azzerano l’attesa.
+
+Il JSON tiene i campi di prima. `author`, `author_id`, `content`, `url`, `is_reply_to_owner` e `created_at` descrivono l’ultimo messaggio del gruppo, così un servizio che legge solo quei campi continua a funzionare. `server`, `server_id`, `channel`, `channel_id`, `thread`, `thread_id` e `is_dm` descrivono la conversazione. `mentions_owner` è `true` se almeno un messaggio del gruppo menziona l’owner.
 
 | Campo | Significato |
 | --- | --- |
 | `server` | Nome del server. `null` se è un messaggio diretto. |
 | `server_id` | ID del server. `null` se è un messaggio diretto. |
-| `channel` | Nome del canale, oppure `DM`. |
-| `channel_id` | ID del canale. |
-| `author` | Nome visualizzato di chi ha scritto (soprannome del server, se c’è). |
-| `author_id` | ID di chi ha scritto. |
-| `content` | Testo leggibile. Le menzioni diventano `@nome` e `#canale`. Se ci sono allegati, gli URL sono in coda. Se ci sono embed, i titoli sono in coda come `Embed: titolo`. |
-| `url` | Link per aprire il messaggio su Discord. |
-| `mentions_owner` | `true` se il messaggio menziona l’owner: `@utente`, un ruolo che l’owner ha in quel server, oppure `@everyone` / `@here` se l’owner è nel server. |
-| `is_reply_to_owner` | `true` se il messaggio è una risposta a un messaggio dell’owner. Un inoltro non conta come risposta. |
+| `channel` | Nome del canale, oppure `DM`. In un thread resta il nome del thread. |
+| `channel_id` | ID del canale. In un thread è l’ID del thread. In un DM è l’ID del canale diretto. |
+| `thread` | Nome del thread. `null` se il messaggio non è in un thread. |
+| `thread_id` | ID del thread. `null` se non è un thread. |
+| `parent_channel` | Nome del canale che contiene il thread. `null` se non è un thread o se Discord non ha indicato il padre. |
+| `parent_channel_id` | ID del canale padre. `null` negli stessi casi di `parent_channel`. |
+| `author` | Nome visualizzato di chi ha scritto l’ultimo messaggio (soprannome del server, se c’è). |
+| `author_id` | ID di chi ha scritto l’ultimo messaggio. |
+| `content` | Testo leggibile dell’ultimo messaggio. Le menzioni diventano `@nome` e `#canale`. Se ci sono allegati, gli URL sono in coda. Se ci sono embed, i titoli sono in coda come `Embed: titolo`. |
+| `url` | Link per aprire l’ultimo messaggio su Discord. |
+| `mentions_owner` | `true` se un messaggio del gruppo menziona l’owner: `@utente`, un ruolo che l’owner ha in quel server, oppure `@everyone` / `@here` se l’owner è nel server. |
+| `is_reply_to_owner` | `true` se l’ultimo messaggio è una risposta a un messaggio dell’owner. Un inoltro non conta come risposta. |
 | `is_dm` | `true` se è un messaggio diretto al bot. |
-| `created_at` | Data del messaggio, in formato ISO. |
+| `created_at` | Data dell’ultimo messaggio, in formato ISO. |
+| `message_count` | Quanti messaggi contiene questo invio. |
+| `first_timestamp` | Data del primo messaggio del gruppo, in formato ISO. |
+| `last_timestamp` | Data dell’ultimo messaggio del gruppo, in formato ISO. |
+| `messages` | I messaggi del gruppo, dal più vecchio al più recente. |
 
-Esempio:
+Ogni elemento di `messages` ha `id`, `author`, `author_id`, `content`, `timestamp`, `url`, `attachments`, `mentions_owner` e `is_reply_to_owner`. `content` è il testo leggibile, con i titoli degli embed in coda. Gli URL degli allegati stanno in `attachments` (un elenco, vuoto se non ce ne sono) e non vengono ripetuti nel `content` di quell’elemento. Nel `content` in cima al JSON, quello dell’ultimo messaggio, gli URL restano in coda come prima.
+
+Esempio di due messaggi raggruppati. Il primo menziona l’owner, il secondo no: `mentions_owner` in cima è `true`, mentre `author` e `content` sono quelli dell’ultimo messaggio.
 
 ```json
 {
@@ -35,14 +51,45 @@ Esempio:
   "server_id": "123456789012345678",
   "channel": "generale",
   "channel_id": "234567890123456789",
+  "thread": null,
+  "thread_id": null,
+  "parent_channel": null,
+  "parent_channel_id": null,
   "author": "Ada",
   "author_id": "345678901234567890",
-  "content": "ciao @Luca\n\nhttps://cdn.discordapp.com/attachments/..../foto.png\n\nEmbed: Report",
-  "url": "https://discord.com/channels/123456789012345678/234567890123456789/456789012345678901",
+  "content": "e questa è la seconda parte\n\nhttps://cdn.discordapp.com/attachments/..../foto.png",
+  "url": "https://discord.com/channels/123456789012345678/234567890123456789/456789012345678902",
   "mentions_owner": true,
   "is_reply_to_owner": false,
   "is_dm": false,
-  "created_at": "2026-11-17T12:00:00.000Z"
+  "created_at": "2026-11-17T12:00:04.000Z",
+  "message_count": 2,
+  "first_timestamp": "2026-11-17T12:00:00.000Z",
+  "last_timestamp": "2026-11-17T12:00:04.000Z",
+  "messages": [
+    {
+      "id": "456789012345678901",
+      "author": "Ada",
+      "author_id": "345678901234567890",
+      "content": "ciao @Luca, ti scrivo a pezzi",
+      "timestamp": "2026-11-17T12:00:00.000Z",
+      "url": "https://discord.com/channels/123456789012345678/234567890123456789/456789012345678901",
+      "attachments": [],
+      "mentions_owner": true,
+      "is_reply_to_owner": false
+    },
+    {
+      "id": "456789012345678902",
+      "author": "Ada",
+      "author_id": "345678901234567890",
+      "content": "e questa è la seconda parte",
+      "timestamp": "2026-11-17T12:00:04.000Z",
+      "url": "https://discord.com/channels/123456789012345678/234567890123456789/456789012345678902",
+      "attachments": ["https://cdn.discordapp.com/attachments/..../foto.png"],
+      "mentions_owner": false,
+      "is_reply_to_owner": false
+    }
+  ]
 }
 ```
 
@@ -50,7 +97,7 @@ La richiesta ha un timeout di circa 10 secondi. Se la rete fallisce o il webhook
 
 ## Cosa non viene inoltrato
 
-- I messaggi dei bot, incluso questo bot, e i messaggi inviati da webhook.
+- I messaggi dei bot, incluso questo bot, e i messaggi inviati da webhook. Non entrano in un gruppo e non azzerano l’attesa.
 - I messaggi di sistema (ingresso nel server, boost, pin, e simili).
 - I messaggi scritti dall’owner, se hai impostato `OWNER_USER_ID`. Per provare il bot scrivi da un altro account.
 - I messaggi di server non elencati in `GUILD_IDS`, se quella variabile è impostata.
@@ -189,6 +236,9 @@ Poi compila `.env`. Su Railway e Render non usi questo file: le stesse variabili
 | `GUILD_IDS` | no | ID dei server da seguire, separati da virgola. Vuoto = tutti i server in cui si trova il bot. |
 | `CHANNEL_IDS` | no | ID dei canali da seguire, separati da virgola. Vuoto = tutti i canali. I DM passano sempre. |
 | `FORWARD_MODE` | no | `all` (predefinito) oppure `mentions`. |
+| `FORWARD_DEBOUNCE_MS` | no | Millisecondi di silenzio dopo l’ultimo messaggio di una conversazione, prima di inviare il gruppo. Predefinito `120000` (2 minuti). `0` invia subito ogni messaggio, senza raggruppare. |
+| `FORWARD_MAX_BATCH` | no | Massimo di messaggi in un gruppo. Raggiunto il limite, il bot invia subito. Predefinito `20`. |
+| `FORWARD_MAX_WAIT_MS` | no | Tempo massimo dal primo messaggio del gruppo, in millisecondi. Superato quel tempo, il bot invia anche se la conversazione non è ancora in silenzio. Predefinito `600000` (10 minuti). |
 | `MCP_API_KEY` | no | Chiave dell’endpoint MCP. Se è vuota, `/mcp` non parte: restano l’inoltro e `GET /health`. |
 | `ALLOW_WRITE` | no | `true` (predefinito) oppure `false`. Con `false` i tool che inviano messaggi, reagiscono, modificano, cancellano, fissano, creano thread o mandano DM non vengono registrati. |
 | `PORT` | no | Porta HTTP. Predefinito `3000`. Su Railway e Render la piattaforma la imposta da sola: non sovrascriverla. |
@@ -252,7 +302,7 @@ Il processo resta connesso a Discord e apre una porta HTTP. Railway e Render la 
    - `DISCORD_TOKEN`
    - `WEBHOOK_URL`
    - `WEBHOOK_AUTHORIZATION`
-   - e le opzionali che ti servono (`OWNER_USER_ID`, `GUILD_IDS`, `CHANNEL_IDS`, `FORWARD_MODE`, `MCP_API_KEY`, `ALLOW_WRITE`).
+   - e le opzionali che ti servono (`OWNER_USER_ID`, `GUILD_IDS`, `CHANNEL_IDS`, `FORWARD_MODE`, `FORWARD_DEBOUNCE_MS`, `FORWARD_MAX_BATCH`, `FORWARD_MAX_WAIT_MS`, `MCP_API_KEY`, `ALLOW_WRITE`).
 5. Non impostare `PORT`: Railway la assegna e il processo la legge da solo.
 6. Inserisci le variabili dal pannello, non nel terminale, così non restano nella cronologia dei comandi.
 7. Avvia il deploy. Apri **Logs**.
@@ -267,7 +317,7 @@ All’avvio devi vedere una riga `Connesso come ...` e l’elenco dei server, pe
 
 Se un ID in `GUILD_IDS` non è tra i server visibili, il log lo segnala: il bot non è in quel server, oppure l’ID è sbagliato.
 
-Il comando dentro il container è `node src/index.js`. Railway controlla `GET /health` (timeout 120 secondi in `railway.json`). Quando ferma il servizio gli manda `SIGTERM`: il bot chiude la porta HTTP, smette di prendere messaggi nuovi, aspetta qualche secondo gli invii già partiti e si chiude. Se il processo esce con un errore, Railway lo riavvia fino a 10 volte.
+Il comando dentro il container è `node src/index.js`. Railway controlla `GET /health` (timeout 120 secondi in `railway.json`). Quando ferma il servizio gli manda `SIGTERM`: il bot smette di prendere messaggi nuovi, invia i gruppi ancora in attesa, chiude la porta HTTP, aspetta qualche secondo gli invii già partiti e si chiude. Lo stesso succede con `SIGINT`. Se il processo esce con un errore, Railway lo riavvia fino a 10 volte.
 
 #### Dominio pubblico e URL MCP
 
@@ -403,7 +453,7 @@ npm test
 npm start
 ```
 
-`npm test` non parla con Discord e non usa il token: controlla i filtri, il JSON e i tentativi del webhook.
+`npm test` non parla con Discord e non usa il token: controlla i filtri, il JSON, il raggruppamento dei messaggi e i tentativi del webhook.
 
 `npm start` collega il bot. Nel terminale devono comparire `Avvio del bot`, `Connesso come ...` e `Server visibili`. Se il nome Soource non c’è, l’invito non è andato a buon fine.
 
@@ -411,7 +461,7 @@ npm start
 
 1. Usa un account Discord che **non** è l’owner, se hai impostato `OWNER_USER_ID`. I messaggi dell’owner vengono ignorati di proposito.
 2. Scrivi in un canale che il bot può vedere. Se hai impostato `CHANNEL_IDS`, scrivi in uno di quei canali. Se `FORWARD_MODE` è `mentions`, menziona l’owner, rispondi a un suo messaggio, oppure scrivi un messaggio diretto al bot.
-3. Nel log deve comparire una riga simile a:
+3. Nel log, dopo il silenzio impostato da `FORWARD_DEBOUNCE_MS` (subito, se è `0`), deve comparire una riga simile a:
 
 ```text
 [2026-11-17T12:04:00.000Z] INFO Inoltrato messaggio 456... da Ada in Soource / #generale (HTTP 200)
@@ -457,7 +507,8 @@ docker run --rm --env-file .env soource-discord-forwarder node scripts/send-samp
 | Il tool risponde `Missing Permissions` | Al ruolo del bot manca uno dei permessi di scrittura: Send Messages, Send Messages in Threads, Create Public Threads, Add Reactions, Manage Messages per i pin. |
 | Un tool di scrittura non compare | `ALLOW_WRITE=false`. I tool di lettura restano. |
 | Il bot è online ma `Server visibili (0)` | Non è stato invitato, oppure l’invito è stato rifiutato. Ripeti il [link di invito](#14-invitare-il-bot-nel-server-soource). |
-| Il server c’è, ma i messaggi non partono | Stai scrivendo dall’account owner; il canale non è in `CHANNEL_IDS`; il server non è in `GUILD_IDS`; oppure `FORWARD_MODE=mentions` e il messaggio non menziona l’owner, non è una risposta e non è un DM. |
+| Il server c’è, ma i messaggi non partono | Stai scrivendo dall’account owner; il canale non è in `CHANNEL_IDS`; il server non è in `GUILD_IDS`; oppure `FORWARD_MODE=mentions` e il messaggio non menziona l’owner, non è una risposta e non è un DM. Se il messaggio è del bot, viene ignorato. |
+| I messaggi arrivano in ritardo, o più messaggi in un solo JSON | È il raggruppamento: il bot aspetta `FORWARD_DEBOUNCE_MS` di silenzio nella stessa conversazione. Per un invio per messaggio, imposta `FORWARD_DEBOUNCE_MS=0`. |
 | I messaggi partono con `content` vuoto | **Message Content Intent** spento, oppure il bot è stato avviato prima di attivarlo. Attivalo e riavvia. |
 | `HTTP 401` o `HTTP 403` | `WEBHOOK_AUTHORIZATION` non è il valore esatto del pannello. Non deve contenere il prefisso `Authorization:`. |
 | `errore di rete` o `HTTP 5xx` | Il servizio ricevente non è raggiungibile. Il bot riprova tre volte e poi continua. Controlla `WEBHOOK_URL`. |
@@ -469,7 +520,7 @@ docker run --rm --env-file .env soource-discord-forwarder node scripts/send-samp
 | --- | --- |
 | `npm install` | Installa le dipendenze. |
 | `npm start` | Avvia il bot. |
-| `npm test` | Esegue i test dei filtri, del JSON, dei tentativi HTTP, dell’autenticazione MCP e dei tool. |
+| `npm test` | Esegue i test dei filtri, del JSON, del raggruppamento, dei tentativi HTTP, dell’autenticazione MCP e dei tool. |
 | `npm run test-webhook` | Invia un payload di prova al webhook. |
 
 Dipendenze di runtime: `discord.js` 14, `dotenv`, `@modelcontextprotocol/sdk` e `zod` (gli schemi dei tool MCP). I test usano il test runner incluso in Node e un client Discord finto: non parlano con Discord e non usano chiavi vere.
@@ -478,7 +529,8 @@ Dipendenze di runtime: `discord.js` 14, `dotenv`, `@modelcontextprotocol/sdk` e 
 
 | File | Ruolo |
 | --- | --- |
-| `src/index.js` | Connessione a Discord, server HTTP, log di avvio, chiusura pulita. Lo stesso client Discord serve l’inoltro e i tool MCP. |
+| `src/index.js` | Connessione a Discord, server HTTP, log di avvio, chiusura pulita. All’arresto invia i gruppi ancora in attesa. Lo stesso client Discord serve l’inoltro e i tool MCP. |
+| `src/batch.js` | Raggruppa i messaggi di una conversazione e li invia dopo il silenzio, o prima se scatta un tetto. |
 | `src/mcp/http.js` | `GET /health` senza autenticazione e `POST /mcp` con Streamable HTTP. |
 | `src/mcp/tools.js` | Tool Discord. Quelli di scrittura dichiarano che l’azione è del bot, non dell’utente. |
 | `src/mcp/auth.js` | Controllo di `Authorization: Bearer <MCP_API_KEY>`. |

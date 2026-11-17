@@ -45,6 +45,9 @@ describe('inspectMessage', () => {
     assert.equal(payload.is_dm, false);
     assert.equal(payload.created_at, '2026-02-03T04:05:06.000Z');
     assert.equal(inspected.filter.authorIsBot, false);
+    assert.equal(inspected.payload.thread, null);
+    assert.equal(inspected.payload.threadId, null);
+    assert.equal(inspected.payload.parentChannel, null);
   });
 
   it('prefers the server nickname and falls back to the global name', async () => {
@@ -80,6 +83,8 @@ describe('inspectMessage', () => {
     assert.equal(inspected.payload.isDm, true);
     assert.equal(inspected.payload.server, null);
     assert.equal(inspected.payload.channel, 'DM');
+    assert.equal(inspected.payload.thread, null);
+    assert.equal(inspected.payload.threadId, null);
     assert.equal(inspected.payload.url, 'https://discord.com/channels/@me/dm-1/900');
     assert.equal(inspected.filter.mentionsOwner, false);
   });
@@ -213,6 +218,29 @@ describe('inspectMessage', () => {
       },
     });
     assert.equal(fetched, 0);
+  });
+
+  it('records a thread separately from its parent channel', async () => {
+    const inspected = await inspectMessage(
+      message({
+        channelId: 'thread-1',
+        channel: {
+          id: 'thread-1',
+          name: 'topic',
+          isThread: () => true,
+          isDMBased: () => false,
+          parentId: '200',
+          parent: { id: '200', name: 'generale' },
+        },
+      }),
+      '10',
+    );
+    assert.equal(inspected.payload.channel, 'topic');
+    assert.equal(inspected.payload.channelId, 'thread-1');
+    assert.equal(inspected.payload.thread, 'topic');
+    assert.equal(inspected.payload.threadId, 'thread-1');
+    assert.equal(inspected.payload.parentChannel, 'generale');
+    assert.equal(inspected.payload.parentChannelId, '200');
   });
 
   it('treats webhook authors as bots', async () => {

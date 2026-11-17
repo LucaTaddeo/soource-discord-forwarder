@@ -69,6 +69,9 @@ describe('evaluateMessage', () => {
     assert.equal(decision.payload.author, 'Ada');
     assert.equal(decision.payload.server, 'Soource');
     assert.equal(decision.payload.mentions_owner, false);
+    assert.equal(decision.entry.key, '200');
+    assert.equal(decision.entry.author, 'Ada');
+    assert.equal(decision.entry.channelId, '200');
   });
 
   it('drops a plain message in mentions mode after checking it', async () => {

@@ -1,6 +1,7 @@
+import { conversationKey } from './batch.js';
 import { inScope, shouldForward } from './filter.js';
 import { inspectMessage, messageScope } from './inspectMessage.js';
-import { buildPayload } from './payload.js';
+import { batchEntryFromPayload, buildPayload } from './payload.js';
 
 /**
  * Decides whether a Discord message should be forwarded and, if so, builds
@@ -19,9 +20,14 @@ export async function evaluateMessage(message, config, options = {}) {
     return { forward: false, reason: decision.reason, payload: null };
   }
 
+  const entry = batchEntryFromPayload(inspected.payload);
+  const key = conversationKey(message);
+  if (key) entry.key = key;
+
   return {
     forward: true,
     reason: 'ok',
     payload: buildPayload(inspected.payload),
+    entry,
   };
 }
